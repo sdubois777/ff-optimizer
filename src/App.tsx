@@ -7,8 +7,10 @@ import FilterBar from './components/FilterBar';
 import { parseSheet, optimize } from './api';
 
 type ViewRow = PlayerRow & { __idx: number };
+type SortKey = 'Name' | 'Pos' | 'Price' | 'Projection' | 'anchor' | 'exclude';
+type SortDir = 'asc' | 'desc';
 
-const AUTO_OPT_DEBOUNCE_MS = 600; // tweak 300–800ms to taste
+const AUTO_OPT_DEBOUNCE_MS = 600; // keep your auto-optimize
 
 export default function App() {
   const [rows, setRows] = useState<PlayerRow[]>([]);
@@ -27,6 +29,19 @@ export default function App() {
   const handleSetPositions = useCallback((vals: string[]) => {
     startTransition(() => setSelectedPositions(vals));
   }, []);
+
+  // Sort state (default: Projection desc)
+  const [sortKey, setSortKey] = useState<SortKey>('Projection');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const requestSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      // default direction by type: numbers -> desc, text/bool -> asc
+      setSortDir(key === 'Price' || key === 'Projection' ? 'desc' : 'asc');
+    }
+  };
 
   const onUpload = async (file?: File | null) => {
     if (!file) return;
@@ -51,82 +66,98 @@ export default function App() {
     });
   };
 
-  // View: filters + projection-desc sort (UI only)
+  // Apply filters + SORT by chosen column
   const filteredRows: ViewRow[] = useMemo(() => {
     const s = deferredSearch.trim().toLowerCase();
     const hasPosFilter = selectedPositions.length > 0;
-    return rows
+
+    const base = rows
       .map((r, i) => ({ ...r, __idx: i }))
-      .filter((r) => (!hasPosFilter || selectedPositions.includes(r.Pos)) && (!s || r.Name.toLowerCase().includes(s)))
-      .sort((a, b) => (Number(b.Projection ?? 0) - Number(a.Projection ?? 0)) || a.Name.localeCompare(b.Name));
-  }, [rows, deferredSearch, selectedPositions]);
+      .filter((r) => (!hasPosFilter || selectedPositions.includes(r.Pos)) && (!s || r.Name.toLowerCase().includes(s)));
+
+    const cmp = (a: ViewRow, b: ViewRow) => {
+      const dir = sortDir === 'asc' ? 1 : -1;
+      const num = (v: any) => Number.isFinite(Number(v)) ? Number(v) : 0;
+      const str = (v: any) => String(v ?? '').toLowerCase();
+      const boo = (v: any) => (v ? 1 : 0);
+
+      let res = 0;
+      switch (sortKey) {
+        case 'Price':
+          res = num(a.Price) - num(b.Price);
+          break;
+        case 'Projection':
+          res = num(a.Projection) - num(b.Projection);
+          break;
+        case 'Name':
+          res = str(a.Name).localeCompare(str(b.Name));
+          break;
+        case 'Pos':
+          res = str(a.Pos).localeCompare(str(b.Pos));
+          break;
+        case 'anchor':
+          res = boo(a.anchor) - boo(b.anchor);
+          break;
+        case 'exclude':
+          res = boo(a.exclude) - boo(b.exclude);
+          break;
+      }
+      if (res === 0) {
+        // secondary stable tiebreakers
+        const t = str(a.Name).localeCompare(str(b.Name));
+        if (t !== 0) res = t;
+      }
+      return dir * res;
+    };
+
+    return base.sort(cmp);
+  }, [rows, deferredSearch, selectedPositions, sortKey, sortDir]);
 
   const onClearAllFilters = () => {
     setSelectedPositions([]);
     setSearch('');
   };
 
-  // --- AUTO OPTIMIZE ---
-  // Build a minimal signature of the data that actually affects the optimizer
+  // -------------------
+  // Auto-optimize (unchanged)
   const rowsSignature = useMemo(
-    () =>
-      JSON.stringify(
-        rows.map((r) => ({
-          n: r.Name,
-          p: r.Pos,
-          $: r.Price,
-          pr: r.Projection,
-          a: !!r.anchor,
-          x: !!r.exclude,
-        }))
-      ),
+    () => JSON.stringify(rows.map((r) => ({ n: r.Name, p: r.Pos, $: r.Price, pr: r.Projection, a: !!r.anchor, x: !!r.exclude })) ),
     [rows]
   );
-
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<number | null>(null);
   const reqIdRef = useRef(0);
 
   useEffect(() => {
     if (rows.length === 0) return;
-
-    // debounce
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
     debounceRef.current = window.setTimeout(async () => {
-      // cancel older request
       abortRef.current?.abort();
       const ctl = new AbortController();
       abortRef.current = ctl;
-
       setBusy(true);
       setError(null);
       const myReq = ++reqIdRef.current;
-
       try {
         const sols = await optimize(rows, budget, k, ctl.signal);
-        // only apply if this is the latest in-flight call
         if (myReq === reqIdRef.current) setSolutions(sols);
       } catch (e: any) {
-        // ignore cancellations; surface real errors
         const code = e?.code || e?.name || '';
-        if (String(code).toLowerCase().includes('cancel')) {
-          /* noop */
-        } else if (myReq === reqIdRef.current) {
-          setSolutions([]);
-          setError(e?.message ?? String(e));
+        if (!String(code).toLowerCase().includes('cancel')) {
+          if (myReq === reqIdRef.current) {
+            setSolutions([]);
+            setError(e?.message ?? String(e));
+          }
         }
       } finally {
         if (myReq === reqIdRef.current) setBusy(false);
       }
     }, AUTO_OPT_DEBOUNCE_MS);
-
-    return () => {
-      if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    };
-    // re-run when price/projection/anchor/exclude change, or budget/k
+    return () => { if (debounceRef.current) window.clearTimeout(debounceRef.current); };
   }, [rowsSignature, budget, k]);
+  // -------------------
 
-  // Manual button still useful if you ever turn auto off
+  // Manual button still available
   const onOptimizeNow = async () => {
     abortRef.current?.abort();
     const ctl = new AbortController();
@@ -152,9 +183,7 @@ export default function App() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
-      <Typography variant="h5" sx={{ mb: 2 }}>
-        Fantasy Auction Lineup Optimizer
-      </Typography>
+      <Typography variant="h5" sx={{ mb: 2 }}>Fantasy Auction Lineup Optimizer</Typography>
 
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2, flexWrap: 'wrap' }}>
         <Button variant="contained" component="label" disabled={busy}>
@@ -189,6 +218,9 @@ export default function App() {
             onEdit={onEdit}
             listHeight={window.innerHeight ? Math.max(400, window.innerHeight - 320) : 560}
             rowHeight={48}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onRequestSort={requestSort}
           />
         </Paper>
 
@@ -198,7 +230,7 @@ export default function App() {
       </Box>
 
       <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-        Showing {filteredRows.length} of {rows.length} {isPending ? '(updating…)': ''} {busy ? '• optimizing…' : ''}
+        Showing {filteredRows.length} of {rows.length} {isPending ? '(updating…)' : ''} {busy ? '• optimizing…' : ''}
       </Typography>
     </Box>
   );

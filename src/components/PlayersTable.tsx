@@ -5,16 +5,24 @@ import { FixedSizeList, type ListChildComponentProps } from 'react-window';
 
 type ViewRow = PlayerRow & { __idx?: number };
 
+type SortKey = 'Name' | 'Pos' | 'Price' | 'Projection' | 'anchor' | 'exclude';
+type SortDir = 'asc' | 'desc';
+
 type Props = {
-  rows: ViewRow[];                     // possibly filtered
+  rows: ViewRow[];
   onEdit: (originalIndex: number, patch: Partial<PlayerRow>) => void;
-  listHeight?: number;                 // px; default 560
-  rowHeight?: number;                  // px; default 48
+  listHeight?: number;
+  rowHeight?: number;
+
+  // NEW: sorting
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onRequestSort: (key: SortKey) => void;
 };
 
-// widen columns so Name has room; if viewport is smaller, we'll scroll horizontally
-const COLS = '84px 84px minmax(180px, clamp(240px, 28vw, 360px)) 72px 120px 140px';
-const MIN_TABLE_WIDTH = 780; // px; tweak as you like
+// Column sizing (you already tuned these)
+const COLS = '84px 84px minmax(180px, 360px) 72px 120px 140px';
+const MIN_TABLE_WIDTH = 780;
 
 const headerCell: React.CSSProperties = {
   fontWeight: 600,
@@ -24,6 +32,19 @@ const headerCell: React.CSSProperties = {
   top: 0,
   background: '#111',
   zIndex: 2,
+};
+
+const headerBtn: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  color: 'inherit',
+  padding: 0,
+  margin: 0,
+  cursor: 'pointer',
+  font: 'inherit',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
 };
 
 const RowRenderer = memo(function RowRenderer({
@@ -103,16 +124,16 @@ export default function PlayersTable({
   onEdit,
   listHeight = 560,
   rowHeight = 48,
+  sortKey,
+  sortDir,
+  onRequestSort,
 }: Props) {
-  // measure container so the list can be at least MIN_TABLE_WIDTH,
-  // and grow when space allows (so names don't wrap)
   const outerRef = useRef<HTMLDivElement | null>(null);
   const [contentWidth, setContentWidth] = useState<number>(MIN_TABLE_WIDTH);
 
   useEffect(() => {
     const el = outerRef.current;
     if (!el) return;
-
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const w = entry.contentRect.width;
@@ -129,18 +150,11 @@ export default function PlayersTable({
     return d;
   }, [rows, onEdit]);
 
+  const Arrow = ({ active }: { active: boolean }) =>
+    active ? <span>{sortDir === 'asc' ? '▲' : '▼'}</span> : <span style={{ opacity: 0.35 }}>↕</span>;
+
   return (
-    <Box
-      ref={outerRef}
-      sx={{
-        height: '100%',
-        // horizontal scroll if viewport < MIN_TABLE_WIDTH
-        overflowX: 'auto',
-        // vertical scroll handled by react-window; avoid double scrollbars:
-        overflowY: 'hidden',
-      }}
-    >
-      {/* header + list share the same explicit width so columns align */}
+    <Box ref={outerRef} sx={{ height: '100%', overflowX: 'auto', overflowY: 'hidden' }}>
       <div style={{ width: contentWidth }}>
         {/* Header */}
         <div
@@ -156,18 +170,42 @@ export default function PlayersTable({
             borderBottom: '1px solid #333',
           }}
         >
-          <div style={headerCell}>Anchor</div>
-          <div style={headerCell}>Exclude</div>
-          <div style={headerCell}>Name</div>
-          <div style={headerCell}>Pos</div>
-          <div style={headerCell}>Price</div>
-          <div style={headerCell}>Projection</div>
+          <div style={headerCell}>
+            <button style={headerBtn} onClick={() => onRequestSort('anchor')}>
+              Anchor <Arrow active={sortKey === 'anchor'} />
+            </button>
+          </div>
+          <div style={headerCell}>
+            <button style={headerBtn} onClick={() => onRequestSort('exclude')}>
+              Exclude <Arrow active={sortKey === 'exclude'} />
+            </button>
+          </div>
+          <div style={headerCell}>
+            <button style={headerBtn} onClick={() => onRequestSort('Name')}>
+              Name <Arrow active={sortKey === 'Name'} />
+            </button>
+          </div>
+          <div style={headerCell}>
+            <button style={headerBtn} onClick={() => onRequestSort('Pos')}>
+              Pos <Arrow active={sortKey === 'Pos'} />
+            </button>
+          </div>
+          <div style={headerCell}>
+            <button style={headerBtn} onClick={() => onRequestSort('Price')}>
+              Price <Arrow active={sortKey === 'Price'} />
+            </button>
+          </div>
+          <div style={headerCell}>
+            <button style={headerBtn} onClick={() => onRequestSort('Projection')}>
+              Projection <Arrow active={sortKey === 'Projection'} />
+            </button>
+          </div>
         </div>
 
         {/* Virtualized body */}
         <FixedSizeList
           height={listHeight}
-          width={contentWidth}     // <- key: allow wide table; outer box will scroll if needed
+          width={contentWidth}
           itemCount={rows.length}
           itemSize={rowHeight}
           itemData={itemData}
@@ -175,7 +213,6 @@ export default function PlayersTable({
             const r = (data as any)[idx] as ViewRow;
             return `${r.Name}-${r.Pos}-${r.__idx ?? idx}`;
           }}
-          // let react-window handle vertical scrolling; horizontal is the outer Box
         >
           {RowRenderer as any}
         </FixedSizeList>
