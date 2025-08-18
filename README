@@ -1,0 +1,12 @@
+Starting the backend
+
+cd backend
+python -m venv venv
+.\venv\Scripts\activate
+pip install -U pip
+pip install flask flask-cors pandas openpyxl pulp python-dotenv
+python app.py
+
+Frontend
+
+In a new terminal npm run dev

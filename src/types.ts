@@ -5,7 +5,6 @@ export type PlayerRow = {
   Projection: number;
 
   // UI flags
-  include?: boolean;
   anchor?: boolean;
   exclude?: boolean;
 };
