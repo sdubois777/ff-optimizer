@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+// src/App.tsx
+import { useMemo, useState, useTransition, useDeferredValue, useCallback } from 'react';
 import { Box, Button, Stack, TextField, Typography, Alert, Paper } from '@mui/material';
 import type { PlayerRow, Solution } from './types';
 import PlayersTable from './components/PlayersTable';
@@ -20,6 +21,15 @@ export default function App() {
   const posOptions = ['QB', 'RB', 'WR', 'TE'];
   const [selectedPositions, setSelectedPositions] = useState<string[]>([]);
   const [search, setSearch] = useState<string>('');
+
+  // Smooth typing for search
+  const deferredSearch = useDeferredValue(search);
+
+  // Concurrent UI update for position toggles
+  const [isPending, startTransition] = useTransition();
+  const handleSetPositions = useCallback((vals: string[]) => {
+    startTransition(() => setSelectedPositions(vals));
+  }, []);
 
   const onUpload = async (file?: File | null) => {
     if (!file) return;
@@ -45,17 +55,30 @@ export default function App() {
     });
   };
 
-  // Apply filters (case-insensitive search; multi-pos)
+  // Apply filters (case-insensitive search; multi-pos) + SORT BY PROJECTION DESC
   const filteredRows: ViewRow[] = useMemo(() => {
-    const s = search.trim().toLowerCase();
-    return rows
+    const s = deferredSearch.trim().toLowerCase();
+    const hasPosFilter = selectedPositions.length > 0;
+
+    const out = rows
       .map((r, i) => ({ ...r, __idx: i }))
       .filter((r) => {
-        const posOk = selectedPositions.length === 0 || selectedPositions.includes(r.Pos);
-        const searchOk = !s || r.Name.toLowerCase().includes(s);
-        return posOk && searchOk;
+        if (hasPosFilter && !selectedPositions.includes(r.Pos)) return false;
+        if (s && !r.Name.toLowerCase().includes(s)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const pa = Number(a.Projection ?? 0);
+        const pb = Number(b.Projection ?? 0);
+        if (pb !== pa) return pb - pa;           // projection DESC
+        // optional tiebreakers:
+        const na = (a.Name || '').toLowerCase();
+        const nb = (b.Name || '').toLowerCase();
+        return na.localeCompare(nb);
       });
-  }, [rows, search, selectedPositions]);
+
+    return out;
+  }, [rows, deferredSearch, selectedPositions]);
 
   const onClearAllFilters = () => {
     setSelectedPositions([]);
@@ -66,8 +89,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      // Send ALL rows (including filtered-out ones); filters are UI only
-      const sols = await optimize(rows, budget, k);
+      const sols = await optimize(rows, budget, k); // send ALL rows; filters are UI-only
       setSolutions(sols);
     } catch (e: any) {
       setSolutions([]);
@@ -86,12 +108,7 @@ export default function App() {
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2, flexWrap: 'wrap' }}>
         <Button variant="contained" component="label" disabled={busy}>
           Upload CSV/XLSX
-          <input
-            hidden
-            type="file"
-            accept=".csv,.xlsx,.xls"
-            onChange={(e) => onUpload(e.target.files?.[0] || null)}
-          />
+          <input hidden type="file" accept=".csv,.xlsx,.xls" onChange={(e) => onUpload(e.target.files?.[0] || null)} />
         </Button>
 
         <TextField
@@ -118,19 +135,15 @@ export default function App() {
       </Stack>
 
       <FilterBar
-        posOptions={posOptions}
+        posOptions={['QB','RB','WR','TE']}
         selectedPositions={selectedPositions}
-        setSelectedPositions={setSelectedPositions}
+        setSelectedPositions={handleSetPositions}
         search={search}
         setSearch={setSearch}
         onClearAll={onClearAllFilters}
       />
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {/* Two-pane layout */}
       <Box
@@ -144,7 +157,8 @@ export default function App() {
       >
         {/* Left: filtered table in a tall scrollable card */}
         <Paper sx={{ p: 0, border: '1px solid #333', bgcolor: '#111', height: { xs: 'auto', md: 'calc(100vh - 260px)' } }}>
-          <PlayersTable rows={filteredRows} onEdit={onEdit} />
+          {/* Virtualized list inside PlayersTable */}
+          <PlayersTable rows={filteredRows} onEdit={onEdit} listHeight={window.innerHeight ? Math.max(400, window.innerHeight - 320) : 560} />
         </Paper>
 
         {/* Right: results pane is sticky */}
@@ -154,7 +168,7 @@ export default function App() {
       </Box>
 
       <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-        Showing {filteredRows.length} of {rows.length} players
+        Showing {filteredRows.length} of {rows.length} {isPending ? '(updating…)': ''}
       </Typography>
     </Box>
   );
