@@ -1,0 +1,28 @@
+export type PlayerRow = {
+  Name: string;
+  Pos: 'QB' | 'RB' | 'WR' | 'TE' | string;
+  Price: number;
+  Projection: number;
+
+  // UI flags
+  include?: boolean;
+  anchor?: boolean;
+  exclude?: boolean;
+};
+
+export type SolutionRow = {
+  Slot: string;
+  Name: string;
+  Pos: string;
+  Price: number;
+  Projection: number;
+  // "PP$" is calculated by the backend
+  ['PP$']?: number;
+};
+
+export type Solution = {
+  rank: number;
+  total_cost: number;
+  total_points: number;
+  table: SolutionRow[];
+};
