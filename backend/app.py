@@ -101,8 +101,9 @@ def optimize():
         df["NameKeySimpl"] = df["NameKey"].apply(simplify_key)
 
     # Derive excludes / anchors from row flags
-    excludes = [str(r["Name"]) for _, r in df[df.get("exclude", False) == True].iterrows()]
-    anchors = [str(r["Name"]) for _, r in df[df.get("anchor", False) == True].iterrows()]
+    excludes = df.loc[df.get("exclude", pd.Series(False, index=df.index)).fillna(False), "Name"].astype(str).tolist()
+    anchors  = df.loc[df.get("anchor",  pd.Series(False, index=df.index)).fillna(False),  "Name"].astype(str).tolist()
+
 
     # Apply excludes, then solve strict Top-K
     df2 = apply_excludes(df, excludes)
