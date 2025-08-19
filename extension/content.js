@@ -48,33 +48,20 @@
   const TEAM_ABBR = "(?:ARI|ATL|BAL|BUF|CAR|CHI|CIN|CLE|DAL|DEN|DET|GB|GNB|HOU|IND|JAX|JAC|KC|KCC|LAC|LAR|LA|LV|MIA|MIN|NE|NWE|NO|NOR|NYG|NYJ|PHI|PIT|SEA|SF|SFO|TB|TAM|TEN|WAS)";
   function dropTrailingTeam(input) {
     let s = String(input || "");
-
-    // Normalize NBSP/zero-width spaces to regular spaces
-    s = s.replace(/[\u00A0\u2000-\u200B]/g, " ");
-
-    // Convert dotted forms "L.A." / "S.F." at the very end to plain "LA"/"SF"
-    s = s.replace(/\b([A-Z])\.\s*([A-Z])\.\s*$/g, "$1$2");
-
-    // Remove spaced/comma/hyphen-separated trailing team abbr (one or more times)
-    // e.g., "Puka Nacua LA", "Aiyuk, SF", "Allen - BUF"
+    s = s.replace(/[\u00A0\u2000-\u200B]/g, " ");                 // NBSP/ZW spaces → normal
+    s = s.replace(/\b([A-Z])\.\s*([A-Z])\.\s*$/g, "$1$2");        // "L.A." → "LA" (end)
     const tailSepRe = new RegExp(`[\\s,\\-]*${TEAM_ABBR}\\s*$`, "i");
-
-    // Remove glued trailing team abbr (one pass)
-    // e.g., "ChaseCin", "Puka NacuaLA", "AllenBUF"
     const tailGluedRe = new RegExp(`([A-Za-z.'-]{2,})${TEAM_ABBR}$`, "i");
-
-    // Loop a couple of times to clear stacked endings (rare but safe)
     for (let i = 0; i < 3; i++) {
       const before = s;
       s = s.replace(tailSepRe, "").replace(tailGluedRe, "$1");
       if (s === before) break;
     }
-
     return s.trim();
   }
 
   // ====================================================
-  //                 LIVE BID (stable)
+  //                 LIVE BID (working)
   // ====================================================
 
   function isPosText(t) {
@@ -209,32 +196,44 @@
     return best;
   }
 
-  const bidState = { lastName: null, lastPrice: null };
+  // ====================================================
+  //           STATE: roster + nomination finalize
+  // ====================================================
 
-  function bidTick() {
-    try {
-      const hit = extractActiveBidOnce();
-      if (!hit) return;
-      if (hit.name === bidState.lastName && hit.price === bidState.lastPrice) return;
+  const rosterCache = {
+    names: /** @type {string[]} */ ([]),
+    costs: /** @type {Record<string,number>} */ ({}),
+    namesSet: /** @type {Set<string>} */ (new Set()),
+  };
 
-      bidState.lastName = hit.name;
-      bidState.lastPrice = hit.price;
+  const soldSeen = new Set(); // "name|bid" signatures
 
-      info("bid_update", { name: hit.name, price: hit.price });
-      postDraftEvent({ type: "bid_update", player_name: hit.name, bid: hit.price });
-    } catch (e) {
-      warn("tick error", e);
-    }
+  function finalizePreviousIfNeeded(nextName) {
+    const prevName = bidState.lastName;
+    const prevPrice = bidState.lastPrice;
+    if (!prevName || !prevPrice) return;
+    if (nextName && nextName === prevName) return; // same nomination
+
+    const sig = `${prevName}|${prevPrice}`;
+    if (soldSeen.has(sig)) return;
+    soldSeen.add(sig);
+
+    const isMine = rosterCache.namesSet.has(prevName);
+    const payload = {
+      type: "player_sold",
+      player_name: prevName,
+      bid: prevPrice,
+      // omit winner when not mine → frontend sets exclude
+      ...(isMine ? { winner: "__you__", won_by_you: true } : {}),
+    };
+    info("player_sold (finalize)", payload);
+    postDraftEvent(payload);
   }
-
-  setInterval(bidTick, BID_SCAN_MS);
-  info("content.js ready on", location.href);
 
   // ====================================================
   //                 ROSTER SYNC (table)
   // ====================================================
 
-  // Find the "My Team" table panel (headers: Pos | Player | Salary)
   function findRosterPanel() {
     const candidates = [];
     document.querySelectorAll("aside,section,div").forEach((el) => {
@@ -247,12 +246,10 @@
       }
     });
     if (!candidates.length) return null;
-    // prefer right-side panel (largest x)
     candidates.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
     return candidates[candidates.length - 1];
   }
 
-  // Given a player <a>, climb to its "row"
   function rowForPlayerAnchor(a) {
     let cur = a;
     for (let i = 0; i < 8 && cur; i++, cur = cur.parentElement) {
@@ -281,7 +278,7 @@
     }
     if (best != null) return best;
 
-    // "$" and "17" in adjacent nodes
+    // "$" then number in adjacent node
     for (const el of nodes) {
       if (!isVisible(el)) continue;
       const t = el.textContent || "";
@@ -360,6 +357,10 @@
       if (sig === rosterState.lastSig) return;
       rosterState.lastSig = sig;
 
+      rosterCache.names = names;
+      rosterCache.costs = costs;
+      rosterCache.namesSet = new Set(names);
+
       info("roster", names);
       if (Object.keys(costs).length) info("roster_costs", costs);
       postDraftEvent({ type: "roster", names, costs });
@@ -370,9 +371,46 @@
 
   setInterval(rosterTick, ROSTER_SCAN_MS);
 
-  // Manual tests:
+  // ====================================================
+  //                 BID TICK + FINALIZE
+  // ====================================================
+
+  const bidState = {
+    lastName: /** @type {string|null} */ (null),
+    lastPrice: /** @type {number|null} */ (null),
+  };
+
+  function bidTick() {
+    try {
+      const hit = extractActiveBidOnce();
+      if (!hit) return;
+
+      // If nomination changed, finalize previous as sold (anchor if on roster; else exclude)
+      if (bidState.lastName && hit.name !== bidState.lastName) {
+        finalizePreviousIfNeeded(hit.name);
+      }
+
+      if (hit.name !== bidState.lastName || hit.price !== bidState.lastPrice) {
+        bidState.lastName = hit.name;
+        bidState.lastPrice = hit.price;
+
+        info("bid_update", { name: hit.name, price: hit.price });
+        postDraftEvent({ type: "bid_update", player_name: hit.name, bid: hit.price });
+      }
+    } catch (e) {
+      warn("tick error", e);
+    }
+  }
+
+  setInterval(bidTick, BID_SCAN_MS);
+  info("content.js ready on", location.href);
+
+  // ====================================================
+  //                 Manual tests
+  // ====================================================
   // window.__ffo_testBid("Puka NacuaLA", 22)
   // window.__ffo_testRoster(["ChaseCin","Aiyuk SF","L.A."])
+  // window.__ffo_testFinalize() — simulate a nomination change to finalize last active
   window.__ffo_testBid = (name, price) => {
     postDraftEvent({ type: "bid_update", player_name: String(name || ""), bid: Number(price || 0) });
     info("test bid_update posted", name, price);
@@ -381,5 +419,8 @@
     const arr = Array.isArray(names) ? names : [];
     postDraftEvent({ type: "roster", names: arr });
     info("test roster posted", arr);
+  };
+  window.__ffo_testFinalize = () => {
+    finalizePreviousIfNeeded("__force_next__");
   };
 })();
