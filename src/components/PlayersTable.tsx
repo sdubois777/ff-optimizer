@@ -1,222 +1,206 @@
-import React, { useMemo, memo, useEffect, useRef, useState } from 'react';
-import { type PlayerRow } from '../types';
-import { Box, Checkbox, TextField } from '@mui/material';
-import { FixedSizeList, type ListChildComponentProps } from 'react-window';
+import React, { useMemo } from "react";
+import {
+  Checkbox,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+} from "@mui/material";
+import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import type { PlayerRow } from "../types";
 
-type ViewRow = PlayerRow & { __idx?: number };
+type SortKey = "Name" | "Pos" | "Price" | "Projection" | "anchor" | "exclude";
+type SortDir = "asc" | "desc";
+type ViewRow = PlayerRow & { __idx: number };
 
-type SortKey = 'Name' | 'Pos' | 'Price' | 'Projection' | 'anchor' | 'exclude';
-type SortDir = 'asc' | 'desc';
-
-type Props = {
+export default function PlayersTable(props: {
   rows: ViewRow[];
   onEdit: (originalIndex: number, patch: Partial<PlayerRow>) => void;
-  listHeight?: number;
-  rowHeight?: number;
-
-  // NEW: sorting
+  listHeight: number;
+  rowHeight: number;
   sortKey: SortKey;
   sortDir: SortDir;
   onRequestSort: (key: SortKey) => void;
-};
+  highlightOriginalIndex?: number | null;
+  highlightColor?: "green" | "yellow" | "red" | null;
+}) {
+  const {
+    rows,
+    onEdit,
+    listHeight,
+    rowHeight,
+    sortKey,
+    sortDir,
+    onRequestSort,
+    highlightOriginalIndex = null,
+    highlightColor = null,
+  } = props;
 
-// Column sizing (you already tuned these)
-const COLS = '84px 84px minmax(180px, 360px) 72px 120px 140px';
-const MIN_TABLE_WIDTH = 780;
+  const sortIcon = (key: SortKey) =>
+    sortKey === key ? (
+      sortDir === "asc" ? (
+        <ArrowUpwardIcon fontSize="small" />
+      ) : (
+        <ArrowDownwardIcon fontSize="small" />
+      )
+    ) : null;
 
-const headerCell: React.CSSProperties = {
-  fontWeight: 600,
-  padding: '8px',
-  textAlign: 'left',
-  position: 'sticky',
-  top: 0,
-  background: '#111',
-  zIndex: 2,
-};
+  const borderColor = useMemo(() => {
+    if (highlightColor === "green") return "#2e7d32";
+    if (highlightColor === "yellow") return "#f9a825";
+    if (highlightColor === "red") return "#c62828";
+    return "transparent";
+  }, [highlightColor]);
 
-const headerBtn: React.CSSProperties = {
-  background: 'transparent',
-  border: 'none',
-  color: 'inherit',
-  padding: 0,
-  margin: 0,
-  cursor: 'pointer',
-  font: 'inherit',
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-};
-
-const RowRenderer = memo(function RowRenderer({
-  index,
-  style,
-  data,
-}: ListChildComponentProps<ViewRow[] & { onEdit: Props['onEdit'] }>) {
-  const rows = data as any;
-  const row: ViewRow = rows[index];
-  const onEdit = rows.onEdit as Props['onEdit'];
-  const original = row.__idx ?? index;
-
-  const gridStyle: React.CSSProperties = {
-    ...style,
-    display: 'grid',
-    gridTemplateColumns: COLS,
-    alignItems: 'center',
-    borderTop: '1px solid #333',
-    padding: '0 8px',
-    boxSizing: 'border-box',
-    width: '100%',
-  };
-
-  const noWrapCell: React.CSSProperties = {
-    padding: '6px 8px',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  };
+  const nameDisplay = (s: string) => s.replace(/\s*\(.*$/, ""); // purely visual
 
   return (
-    <div style={gridStyle} key={`${row.Name}-${row.Pos}-${original}`}>
-      <Checkbox
-        size="small"
-        checked={!!row.anchor}
-        onChange={(e) => onEdit(original, { anchor: e.target.checked, exclude: e.target.checked ? false : row.exclude })}
-      />
-      <Checkbox
-        size="small"
-        checked={!!row.exclude}
-        onChange={(e) => onEdit(original, { exclude: e.target.checked, anchor: e.target.checked ? false : row.anchor })}
-      />
-      <div style={noWrapCell} title={row.Name}>{row.Name}</div>
-      <div style={noWrapCell} title={row.Pos}>{row.Pos}</div>
-      <div style={{ padding: '6px 8px' }}>
-        <TextField
-          size="small"
-          type="number"
-          value={row.Price ?? ''}
-          onChange={(e) => {
-            const val = e.target.value;
-            const n = val === '' ? 0 : Math.trunc(Number(val));
-            onEdit(original, { Price: Number.isFinite(n) && n >= 0 ? n : 0 });
-          }}
-          inputProps={{ min: 0, step: 1 }}
-        />
-      </div>
-      <div style={{ padding: '6px 8px' }}>
-        <TextField
-          size="small"
-          type="number"
-          value={row.Projection ?? ''}
-          onChange={(e) => {
-            const val = e.target.value;
-            const n = val === '' ? 0 : Number(val);
-            onEdit(original, { Projection: Number.isFinite(n) && n >= 0 ? n : 0 });
-          }}
-          inputProps={{ min: 0, step: '0.1' }}
-        />
-      </div>
-    </div>
-  );
-});
+    <TableContainer
+      sx={{
+        maxHeight: listHeight,
+        overflowY: "auto",
+        bgcolor: "#0d0d0d",
+      }}
+    >
+      <Table stickyHeader size="small" sx={{ minWidth: 760 }}>
+        <TableHead>
+          <TableRow>
+            <TableCell sx={{ width: 52, color: "#ddd" }}>
+              <Tooltip title="Include (anchor)">
+                <span>Inc</span>
+              </Tooltip>
+            </TableCell>
+            <TableCell sx={{ width: 56, color: "#ddd" }}>
+              <Tooltip title="Exclude">
+                <span>Exc</span>
+              </Tooltip>
+            </TableCell>
 
-export default function PlayersTable({
-  rows,
-  onEdit,
-  listHeight = 560,
-  rowHeight = 48,
-  sortKey,
-  sortDir,
-  onRequestSort,
-}: Props) {
-  const outerRef = useRef<HTMLDivElement | null>(null);
-  const [contentWidth, setContentWidth] = useState<number>(MIN_TABLE_WIDTH);
+            <TableCell
+              sx={{ width: 280, color: "#ddd", fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer" }}
+              onClick={() => onRequestSort("Name")}
+            >
+              Name {sortIcon("Name")}
+            </TableCell>
+            <TableCell
+              sx={{ width: 70, color: "#ddd", fontWeight: 600, cursor: "pointer" }}
+              onClick={() => onRequestSort("Pos")}
+            >
+              Pos {sortIcon("Pos")}
+            </TableCell>
+            <TableCell
+              sx={{ width: 90, color: "#ddd", fontWeight: 600, cursor: "pointer" }}
+              onClick={() => onRequestSort("Price")}
+            >
+              Price {sortIcon("Price")}
+            </TableCell>
+            <TableCell
+              sx={{ width: 120, color: "#ddd", fontWeight: 600, cursor: "pointer" }}
+              onClick={() => onRequestSort("Projection")}
+            >
+              Projection {sortIcon("Projection")}
+            </TableCell>
+          </TableRow>
+        </TableHead>
 
-  useEffect(() => {
-    const el = outerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const w = entry.contentRect.width;
-        setContentWidth(Math.max(MIN_TABLE_WIDTH, Math.floor(w)));
-      }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+        <TableBody>
+          {rows.map((r) => {
+            const isHighlighted = r.__idx === highlightOriginalIndex;
 
-  const itemData = useMemo(() => {
-    const d: any = [...rows];
-    d.onEdit = onEdit;
-    return d;
-  }, [rows, onEdit]);
+            return (
+              <TableRow
+                key={r.__idx}
+                hover
+                sx={{
+                  height: rowHeight,
+                  "&:not(:last-of-type)": { borderBottom: "1px solid #222" },
+                  backgroundColor: isHighlighted ? "rgba(255,255,255,0.03)" : "transparent",
+                }}
+              >
+                {/* anchor */}
+                <TableCell sx={{ color: "#ddd" }}>
+                  <Checkbox
+                    size="small"
+                    checked={!!r.anchor}
+                    onChange={(e) =>
+                      onEdit(r.__idx, {
+                        anchor: e.target.checked,
+                        exclude: e.target.checked ? false : r.exclude,
+                      })
+                    }
+                  />
+                </TableCell>
 
-  const Arrow = ({ active }: { active: boolean }) =>
-    active ? <span>{sortDir === 'asc' ? '▲' : '▼'}</span> : <span style={{ opacity: 0.35 }}>↕</span>;
+                {/* exclude */}
+                <TableCell sx={{ color: "#ddd" }}>
+                  <Checkbox
+                    size="small"
+                    checked={!!r.exclude}
+                    onChange={(e) =>
+                      onEdit(r.__idx, {
+                        exclude: e.target.checked,
+                        anchor: e.target.checked ? false : r.anchor,
+                      })
+                    }
+                  />
+                </TableCell>
 
-  return (
-    <Box ref={outerRef} sx={{ height: '100%', overflowX: 'auto', overflowY: 'hidden' }}>
-      <div style={{ width: contentWidth }}>
-        {/* Header */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: COLS,
-            padding: '0 8px',
-            boxSizing: 'border-box',
-            position: 'sticky',
-            top: 0,
-            background: '#111',
-            zIndex: 2,
-            borderBottom: '1px solid #333',
-          }}
-        >
-          <div style={headerCell}>
-            <button style={headerBtn} onClick={() => onRequestSort('anchor')}>
-              Anchor <Arrow active={sortKey === 'anchor'} />
-            </button>
-          </div>
-          <div style={headerCell}>
-            <button style={headerBtn} onClick={() => onRequestSort('exclude')}>
-              Exclude <Arrow active={sortKey === 'exclude'} />
-            </button>
-          </div>
-          <div style={headerCell}>
-            <button style={headerBtn} onClick={() => onRequestSort('Name')}>
-              Name <Arrow active={sortKey === 'Name'} />
-            </button>
-          </div>
-          <div style={headerCell}>
-            <button style={headerBtn} onClick={() => onRequestSort('Pos')}>
-              Pos <Arrow active={sortKey === 'Pos'} />
-            </button>
-          </div>
-          <div style={headerCell}>
-            <button style={headerBtn} onClick={() => onRequestSort('Price')}>
-              Price <Arrow active={sortKey === 'Price'} />
-            </button>
-          </div>
-          <div style={headerCell}>
-            <button style={headerBtn} onClick={() => onRequestSort('Projection')}>
-              Projection <Arrow active={sortKey === 'Projection'} />
-            </button>
-          </div>
-        </div>
+                {/* name with visible left border when highlighted */}
+                <TableCell
+                  sx={{
+                    color: "#eee",
+                    fontWeight: 500,
+                    whiteSpace: "nowrap",
+                    borderLeft: isHighlighted ? `4px solid ${borderColor}` : "4px solid transparent",
+                  }}
+                >
+                  {nameDisplay(r.Name)}
+                </TableCell>
 
-        {/* Virtualized body */}
-        <FixedSizeList
-          height={listHeight}
-          width={contentWidth}
-          itemCount={rows.length}
-          itemSize={rowHeight}
-          itemData={itemData}
-          itemKey={(idx, data) => {
-            const r = (data as any)[idx] as ViewRow;
-            return `${r.Name}-${r.Pos}-${r.__idx ?? idx}`;
-          }}
-        >
-          {RowRenderer as any}
-        </FixedSizeList>
-      </div>
-    </Box>
+                {/* pos */}
+                <TableCell sx={{ color: "#ccc" }}>{r.Pos}</TableCell>
+
+                {/* price (editable) */}
+                <TableCell sx={{ color: "#ccc" }}>
+                  <TextField
+                    value={r.Price ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      const num = v === "" ? undefined : Number(v);
+                      onEdit(r.__idx, { Price: Number.isFinite(num) ? Number(num) : 0 });
+                    }}
+                    size="small"
+                    type="number"
+                    inputProps={{ min: 0, step: 1 }}
+                    sx={{ width: 90 }}
+                  />
+                </TableCell>
+
+                {/* projection (editable) */}
+                <TableCell sx={{ color: "#ccc" }}>
+                  <TextField
+                    value={r.Projection ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      const num = v === "" ? undefined : Number(v);
+                      onEdit(r.__idx, { Projection: Number.isFinite(num) ? Number(num) : 0 });
+                    }}
+                    size="small"
+                    type="number"
+                    inputProps={{ step: 0.1 }}
+                    sx={{ width: 120 }}
+                  />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 }

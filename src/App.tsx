@@ -37,57 +37,46 @@ const SOCKET_URL =
   "http://127.0.0.1:5001";
 
 const AUTO_OPT_DEBOUNCE_MS = 600;
-const DEBUG_ROSTER = false; // set to true to see detailed matching logs
+const DEBUG_ROSTER = false;
 
 // Normalize: lower, drop (TEAM - POS), keep word chars/space/.'-
-const normBase = (s: string) => {
-  const src = String(s || "");
-  const uptoParen = src.includes(")")
-    ? src.slice(0, src.lastIndexOf(")") + 1)
-    : src;
-
-  return uptoParen
+const normBase = (s: string) =>
+  String(s || "")
     .toLowerCase()
-    .replace(/\(([^)]*)\)/g, " ") // drop "(MIN - WR)" from the match key (your Pos parsing is elsewhere)
+    .replace(/\(([^)]*)\)/g, " ")
     .replace(/[^a-z0-9 '.-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-};
 
 // Strip suffixes anywhere
 const stripSuffixes = (s: string) =>
   s.replace(/\b(jr|sr|ii|iii|iv|v)\.?\b/gi, "").trim();
 
 type NameParts = {
-  first: string;        // "brian" or "b" (from "B.")
-  last: string;         // "thomas"
-  firstInitial: string; // "b"
-  first2: string;       // "br"  (first two letters of first, letters only)
-  keyFull: string;      // "brian thomas"
+  first: string;
+  last: string;
+  firstInitial: string;
+  first2: string;
+  keyFull: string;
 };
 
 function alphaInitial(str: string): string {
   const m = String(str || "").match(/[a-z]/i);
   return m ? m[0].toLowerCase() : "";
 }
-
 function cleanToken(t: string): string {
-  // drop trailing dots on initials like "B."
   return String(t || "").replace(/\.+$/g, "");
 }
-
 function partsFrom(raw: string): NameParts {
   const t = stripSuffixes(normBase(raw));
   const tokens = t.split(" ").filter(Boolean);
   const firstTok = cleanToken(tokens[0] ?? "");
   const lastTok = tokens.length > 1 ? tokens[tokens.length - 1] : "";
-
   const first = firstTok;
   const last = lastTok;
   const firstInitial = alphaInitial(firstTok);
   const first2 = firstTok.replace(/[^a-z]/g, "").slice(0, 2);
   const keyFull = first && last ? `${first} ${last}` : "";
-
   return { first, last, firstInitial, first2, keyFull };
 }
 
@@ -117,8 +106,8 @@ function buildNameIndex(rows: PlayerRow[]) {
   const full = new Map<string, number>();
   const last2 = new Map<string, number[]>();
   const last1 = new Map<string, number[]>();
-  const lastCount = new Map<string, number>(); // last-name frequency
-  const lastUnique = new Map<string, number>(); // last → unique index
+  const lastCount = new Map<string, number>();
+  const lastUnique = new Map<string, number>();
 
   const push = (m: Map<string, number[]>, k: string, i: number) => {
     const arr = m.get(k);
@@ -136,10 +125,8 @@ function buildNameIndex(rows: PlayerRow[]) {
     }
   });
 
-  // compute unique last names
   lastCount.forEach((cnt, last) => {
     if (cnt === 1) {
-      // find the single row with this last
       const idx = rows.findIndex((r) => partsFrom(r.Name).last === last);
       if (idx !== -1) lastUnique.set(last, idx);
     }
@@ -158,50 +145,21 @@ function buildNameIndex(rows: PlayerRow[]) {
   return { full, last2, last1, lastUnique };
 }
 
-/** Strong roster resolver (don’t guess unless last name is unique and incoming has only an initial):
- * 1) exact full "first last"
- * 2) unique (last + first 2 letters)
- * 3) unique (last + first initial)
- * 4) fallback: if incoming first is an initial (len ≤ 1) and last name is unique → match
- */
 function resolveRosterIndex(name: string, idx: ReturnType<typeof buildNameIndex>): number {
   const q = partsFrom(name);
-
-  // 1) exact
-  if (q.keyFull && idx.full.has(q.keyFull)) {
-    const i = idx.full.get(q.keyFull)!;
-    if (DEBUG_ROSTER) console.debug("[roster-match] exact", name, "=>", i);
-    return i;
-  }
-
-  // 2) last + first2
+  if (q.keyFull && idx.full.has(q.keyFull)) return idx.full.get(q.keyFull)!;
   if (q.last && q.first2 && q.first2.length === 2) {
     const a2 = idx.last2.get(`${q.last}|${q.first2}`) || [];
-    if (a2.length === 1) {
-      if (DEBUG_ROSTER) console.debug("[roster-match] last+first2", name, "=>", a2[0]);
-      return a2[0];
-    }
+    if (a2.length === 1) return a2[0];
   }
-
-  // 3) last + first initial
   if (q.last && q.firstInitial) {
     const a1 = idx.last1.get(`${q.last}|${q.firstInitial}`) || [];
-    if (a1.length === 1) {
-      if (DEBUG_ROSTER) console.debug("[roster-match] last+initial", name, "=>", a1[0]);
-      return a1[0];
-    }
+    if (a1.length === 1) return a1[0];
   }
-
-  // 4) fallback if only an initial was provided and last is unique in your sheet
   if (q.last && q.first && q.first.replace(/[^a-z]/g, "").length <= 1) {
     const u = idx.lastUnique.get(q.last);
-    if (typeof u === "number") {
-      if (DEBUG_ROSTER) console.debug("[roster-match] last-unique fallback", name, "=>", u);
-      return u;
-    }
+    if (typeof u === "number") return u;
   }
-
-  if (DEBUG_ROSTER) console.debug("[roster-match] no-unique", name);
   return -1;
 }
 
@@ -274,6 +232,27 @@ export default function App() {
     }
   };
 
+  /* ---- nominated pin/highlight ---- */
+  const [activeNomName, setActiveNomName] = useState<string | null>(null);
+
+  const namesFromSolution = useCallback((s: any): string[] => {
+    if (!s) return [];
+    if (Array.isArray(s.table)) return s.table.map((p: any) => String(p?.Name ?? p?.name ?? ""));
+    if (Array.isArray(s.players)) return s.players.map((p: any) => String(p?.Name ?? p?.name ?? ""));
+    if (Array.isArray(s.lineup)) return s.lineup.map((p: any) => String(p?.Name ?? p?.name ?? ""));
+    if (Array.isArray(s.rows)) return s.rows.map((p: any) => String(p?.Name ?? p?.name ?? ""));
+    return [];
+  }, []);
+
+  const lineupMembership = useMemo(() => {
+    const first = solutions[0] ? new Set(namesFromSolution(solutions[0])) : new Set<string>();
+    const others = new Set<string>();
+    solutions.slice(1).forEach((sol) => {
+      for (const n of namesFromSolution(sol)) others.add(n);
+    });
+    return { first, others };
+  }, [solutions, namesFromSolution]);
+
   /* ---- upload ---- */
   const onUpload = async (file?: File | null) => {
     if (!file) return;
@@ -291,6 +270,7 @@ export default function App() {
       }
       setRows(parsed);
       setSolutions([]);
+      setActiveNomName(null);
     } catch (e: any) {
       setError(e?.message ?? String(e));
     } finally {
@@ -307,7 +287,12 @@ export default function App() {
     });
   };
 
-  /* ---- filtered/sorted view ---- */
+  /* ---- filtered/sorted view (with pin-to-top for active) ---- */
+  const activeNomIdx = useMemo(
+    () => (activeNomName ? looseIndexByName(rows, activeNomName) : -1),
+    [rows, activeNomName]
+  );
+
   const filteredRows: ViewRow[] = useMemo(() => {
     const s = deferredSearch.trim().toLowerCase();
     const hasPos = selectedPositions.length > 0;
@@ -351,8 +336,17 @@ export default function App() {
       return dir * res;
     });
 
+    // Pin nominated row to top (if it survived filters)
+    if (activeNomIdx >= 0) {
+      const i = base.findIndex((r) => r.__idx === activeNomIdx);
+      if (i > 0) {
+        const [row] = base.splice(i, 1);
+        base.unshift(row);
+      }
+    }
+
     return base;
-  }, [rows, deferredSearch, selectedPositions, sortKey, sortDir]);
+  }, [rows, deferredSearch, selectedPositions, sortKey, sortDir, activeNomIdx]);
 
   const onClearAllFilters = () => {
     setSelectedPositions([]);
@@ -436,7 +430,7 @@ export default function App() {
   /* ---- socket: roster / bid_update / player_sold ---- */
   useEffect(() => {
     const socket: Socket = io(SOCKET_URL, {
-      transports: ["websocket", "polling"], // allow polling fallback
+      transports: ["websocket", "polling"],
       withCredentials: false,
     });
 
@@ -447,7 +441,6 @@ export default function App() {
     socket.on("draft_event", (evt: any) => {
       if (!evt?.type) return;
 
-      // teach owner keywords (optional)
       if (evt.type === "my_team" && evt.name) {
         const maybe = String(evt.name).trim();
         setWinnerKeys((prev) => {
@@ -478,13 +471,12 @@ export default function App() {
         return;
       }
 
-      // Live bid update → update Price
+      // Live bid update → update Price and mark active by NAME
       if (evt.type === "bid_update") {
         if (!evt.player_name) return;
         const price =
-          Number.isFinite(evt.bid) && evt.bid != null
-            ? Number(evt.bid)
-            : undefined;
+          Number.isFinite(evt.bid) && evt.bid != null ? Number(evt.bid) : undefined;
+
         setRows((prev) => {
           const copy = [...prev];
           const idx = looseIndexByName(copy, evt.player_name);
@@ -494,6 +486,8 @@ export default function App() {
           copy[idx] = r;
           return copy;
         });
+
+        setActiveNomName(String(evt.player_name));
         return;
       }
 
@@ -501,9 +495,8 @@ export default function App() {
       if (evt.type === "player_sold") {
         if (!evt.player_name) return;
         const price =
-          Number.isFinite(evt.bid) && evt.bid != null
-            ? Number(evt.bid)
-            : undefined;
+          Number.isFinite(evt.bid) && evt.bid != null ? Number(evt.bid) : undefined;
+
         setRows((prev) => {
           const copy = [...prev];
           const idx = looseIndexByName(copy, evt.player_name);
@@ -514,16 +507,17 @@ export default function App() {
           if (!evt.winner) {
             if (!r.anchor) r.exclude = true; // unknown winner → exclude unless already ours
           } else {
-            const won = winnerMatchesMe(
-              evt.winner,
-              evt.won_by_you || evt.wonByYou
-            );
+            const won = winnerMatchesMe(evt.winner, evt.won_by_you || evt.wonByYou);
             r.anchor = !!won;
             r.exclude = !won;
           }
           copy[idx] = r;
           return copy;
         });
+
+        if (activeNomName && evt.player_name && String(evt.player_name) === activeNomName) {
+          setActiveNomName(null);
+        }
         return;
       }
     });
@@ -531,7 +525,17 @@ export default function App() {
     return () => {
       socket.disconnect();
     };
-  }, [winnerMatchesMe]);
+  }, [winnerMatchesMe, activeNomName]);
+
+  // Compute highlight color from solutions for the active nomination
+  const highlightColor = useMemo(() => {
+    if (activeNomIdx < 0) return null;
+    const nm = rows[activeNomIdx]?.Name;
+    if (!nm) return "red";
+    if (lineupMembership.first.has(nm)) return "green";
+    if (lineupMembership.others.has(nm)) return "yellow";
+    return "red";
+  }, [activeNomIdx, rows, lineupMembership]);
 
   /* ---- UI ---- */
   return (
@@ -639,6 +643,8 @@ export default function App() {
             sortKey={sortKey}
             sortDir={sortDir}
             onRequestSort={requestSort}
+            highlightOriginalIndex={activeNomIdx >= 0 ? activeNomIdx : null}
+            highlightColor={highlightColor}
           />
         </Paper>
 
