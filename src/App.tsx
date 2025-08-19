@@ -40,13 +40,19 @@ const AUTO_OPT_DEBOUNCE_MS = 600;
 const DEBUG_ROSTER = false; // set to true to see detailed matching logs
 
 // Normalize: lower, drop (TEAM - POS), keep word chars/space/.'-
-const normBase = (s: string) =>
-  String(s || "")
+const normBase = (s: string) => {
+  const src = String(s || "");
+  const uptoParen = src.includes(")")
+    ? src.slice(0, src.lastIndexOf(")") + 1)
+    : src;
+
+  return uptoParen
     .toLowerCase()
-    .replace(/\(([^)]*)\)/g, " ")
+    .replace(/\(([^)]*)\)/g, " ") // drop "(MIN - WR)" from the match key (your Pos parsing is elsewhere)
     .replace(/[^a-z0-9 '.-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+};
 
 // Strip suffixes anywhere
 const stripSuffixes = (s: string) =>
