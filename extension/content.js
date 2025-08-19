@@ -1,4 +1,4 @@
-// content.js — MV3 (Firefox/Firefox Nightly/Chrome) — run_at: document_idle
+// content.js — MV3 (Firefox/Chrome) — run_at: document_idle
 (() => {
   // Top frame only + single instance
   if (window !== window.top) return;
@@ -44,18 +44,38 @@
     return String(name || "").replace(STATUS_RE, "").trim();
   }
 
+  // Robustly drop trailing team tokens (glued or spaced), incl. NBSP & dotted city codes ("L.A.")
+  const TEAM_ABBR = "(?:ARI|ATL|BAL|BUF|CAR|CHI|CIN|CLE|DAL|DEN|DET|GB|GNB|HOU|IND|JAX|JAC|KC|KCC|LAC|LAR|LA|LV|MIA|MIN|NE|NWE|NO|NOR|NYG|NYJ|PHI|PIT|SEA|SF|SFO|TB|TAM|TEN|WAS)";
+  function dropTrailingTeam(input) {
+    let s = String(input || "");
+
+    // Normalize NBSP/zero-width spaces to regular spaces
+    s = s.replace(/[\u00A0\u2000-\u200B]/g, " ");
+
+    // Convert dotted forms "L.A." / "S.F." at the very end to plain "LA"/"SF"
+    s = s.replace(/\b([A-Z])\.\s*([A-Z])\.\s*$/g, "$1$2");
+
+    // Remove spaced/comma/hyphen-separated trailing team abbr (one or more times)
+    // e.g., "Puka Nacua LA", "Aiyuk, SF", "Allen - BUF"
+    const tailSepRe = new RegExp(`[\\s,\\-]*${TEAM_ABBR}\\s*$`, "i");
+
+    // Remove glued trailing team abbr (one pass)
+    // e.g., "ChaseCin", "Puka NacuaLA", "AllenBUF"
+    const tailGluedRe = new RegExp(`([A-Za-z.'-]{2,})${TEAM_ABBR}$`, "i");
+
+    // Loop a couple of times to clear stacked endings (rare but safe)
+    for (let i = 0; i < 3; i++) {
+      const before = s;
+      s = s.replace(tailSepRe, "").replace(tailGluedRe, "$1");
+      if (s === before) break;
+    }
+
+    return s.trim();
+  }
+
   // ====================================================
   //                 LIVE BID (stable)
   // ====================================================
-
-  function* priceElements() {
-    const nodes = document.querySelectorAll("span,div,strong,b,h1,h2,h3");
-    for (const el of nodes) {
-      if (!isVisible(el)) continue;
-      const t = el.innerText || "";
-      if (/\$\s*\d/.test(t)) yield el;
-    }
-  }
 
   function isPosText(t) {
     return /\b(QB|RB|WR|TE|K|DST)\b/i.test(t);
@@ -146,14 +166,14 @@
     ].join(",");
     const explicit = card.querySelector(nameSel);
     if (explicit && isVisible(explicit)) {
-      const t = stripStatus(clean(explicit.textContent || ""));
+      const t = stripStatus(dropTrailingTeam(clean(explicit.textContent || "")));
       if (t && t.length >= 3) return t;
     }
 
     const lines = (card.innerText || "").split(/\n+/).map((s) => s.trim()).filter(Boolean);
     const posIdx = lines.findIndex((L) => isPosText(L));
     if (posIdx > 0) {
-      const guess = stripStatus(clean(lines[posIdx - 1]));
+      const guess = stripStatus(dropTrailingTeam(clean(lines[posIdx - 1])));
       if (guess && guess.length >= 3) return guess;
     }
 
@@ -162,7 +182,7 @@
     for (const L of lines) {
       if (/^[A-Z][A-Za-z0-9 .'\-]{2,}$/.test(L) && L.length > best.length) best = L;
     }
-    return stripStatus(clean(best));
+    return stripStatus(dropTrailingTeam(clean(best)));
   }
 
   function extractActiveBidOnce() {
@@ -287,10 +307,9 @@
   // "J. Goff Det - QB" → "J. Goff"
   function normalizePlayerCell(text) {
     let s = clean(text);
-    s = s.replace(/\s*[–-]\s*(QB|RB|WR|TE|K|DST|DEF)\b.*$/i, "");            // cut " - POS"
-    s = s.replace(/([A-Za-z.'-]{2,})(?:[A-Z]{2,3}|[A-Z][a-z]{2})$/, "$1");   // glued team suffix
-    s = s.replace(/\s+(?:[A-Z]{2,3}|[A-Z][a-z]{2})$/, "");                   // spaced team suffix
-    s = stripStatus(s);                                                      // injury/status suffix
+    s = s.replace(/\s*[–-]\s*(QB|RB|WR|TE|K|DST|DEF)\b.*$/i, ""); // cut " - POS"
+    s = dropTrailingTeam(s);                                     // drop team suffixes
+    s = stripStatus(s);                                          // injury/status suffix
     return clean(s);
   }
 
@@ -352,8 +371,8 @@
   setInterval(rosterTick, ROSTER_SCAN_MS);
 
   // Manual tests:
-  // window.__ffo_testBid("Zay FlowersDTD", 12)
-  // window.__ffo_testRoster(["J. Goff Det - QB", "Zay FlowersDTD"])
+  // window.__ffo_testBid("Puka NacuaLA", 22)
+  // window.__ffo_testRoster(["ChaseCin","Aiyuk SF","L.A."])
   window.__ffo_testBid = (name, price) => {
     postDraftEvent({ type: "bid_update", player_name: String(name || ""), bid: Number(price || 0) });
     info("test bid_update posted", name, price);
