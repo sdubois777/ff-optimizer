@@ -20,8 +20,7 @@ export type SolutionRow = {
 };
 
 export type Solution = {
-  rank: number;
-  total_cost: number;
-  total_points: number;
-  table: SolutionRow[];
+  players: PlayerRow[];
+  total_price: number;
+  total_projection: number;
 };

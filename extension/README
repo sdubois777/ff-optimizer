@@ -1,0 +1,28 @@
+
+## Load in Chrome/Edge
+1) `copy manifest.chrome.json manifest.json`
+2) Open `chrome://extensions`, enable **Developer mode**
+3) **Load unpacked** → pick the `extension/` folder
+
+## Load in Firefox
+1) `copy manifest.firefox.json manifest.json`
+2) Open `about:debugging` → **This Firefox** → **Load Temporary Add-on…**
+3) Pick any file in `extension/` (Firefox reads `manifest.json`)
+
+## Backend URL
+Default is `http://127.0.0.1:5001/draft-event`.
+If you change host/port, update:
+- `host_permissions` in manifest
+- `BACKEND_URL` in `sw.js` and/or `background.js`
+
+## Selectors
+`content.js` includes **fallback** selectors, but Yahoo’s DOM changes.
+Open your draft room, right-click → Inspect, and adjust:
+
+- Nomination/name: `[data-test="current-player-name"]`, `.CurrentPlayer .name`, etc.
+- Current bid: `[data-test="current-bid"]`, `.CurrentBid`, etc.
+- Sold banner: `[data-test="sold-banner"]`, `.SoldBanner`, `.toast`, etc.
+
+## Throttling & Dedupe
+The content script throttles events (250ms) and de-duplicates by `(name,bid,team)`.
+

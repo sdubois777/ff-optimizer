@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Draft Sync → Optimizer",
+  "version": "0.1.0",
+  "description": "Reads Yahoo draft room and pushes events to your optimizer backend.",
+  "host_permissions": [
+    "https://football.fantasysports.yahoo.com/*",
+    "http://127.0.0.1:5001/*"
+  ],
+  "background": { "scripts": ["background.js"] },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://football.fantasysports.yahoo.com/*/draftclient*",
+        "https://football.fantasysports.yahoo.com/*/draft*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": { "id": "ff-optimizer@example.com", "strict_min_version": "121.0" }
+  }
+}

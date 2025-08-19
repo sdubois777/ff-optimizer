@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "FF Optimizer Draft Helper",
+  "version": "0.4.2",
+  "description": "Reads Yahoo auction Updates/My Team panels and forwards events to your optimizer backend.",
+  "action": { "default_title": "FF Optimizer" },
+
+  "permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "*://football.fantasysports.yahoo.com/*",
+    "*://*.fantasysports.yahoo.com/*"
+  ],
+
+  "content_scripts": [
+    {
+      "matches": [
+        "*://football.fantasysports.yahoo.com/*",
+        "*://*.fantasysports.yahoo.com/*"
+      ],
+      "all_frames": true,
+      "match_about_blank": true,
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

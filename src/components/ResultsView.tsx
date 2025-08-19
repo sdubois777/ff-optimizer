@@ -1,72 +1,117 @@
 // src/components/ResultsView.tsx
-import React from 'react';
-import { type Solution } from '../types';
-import { Box, Paper, Typography } from '@mui/material';
+import React from "react";
+import {
+  Box,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Typography,
+  Stack,
+  Divider,
+} from "@mui/material";
+import type { Solution } from "../types";
 
-export default function ResultsView({ solutions }: { solutions: Solution[] }) {
-  if (!solutions?.length) {
+type Props = {
+  solutions: Solution[];
+};
+
+export default function ResultsView({ solutions }: Props) {
+  if (!solutions || solutions.length === 0) {
     return (
-      <Paper sx={{ p: 2, border: '1px solid #333', bgcolor: '#111' }}>
-        <Typography variant="body2" color="text.secondary">No results yet.</Typography>
+      <Paper sx={{ p: 2 }}>
+        <Typography variant="subtitle1" gutterBottom>
+          Suggested lineups
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Upload a sheet and/or tweak filters to see suggested lineups here.
+        </Typography>
       </Paper>
     );
   }
 
-  const th: React.CSSProperties = { textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #333' };
-  const td: React.CSSProperties = { padding: '6px 8px', borderTop: '1px solid #333' };
-  const nameTd: React.CSSProperties = {
-    ...td,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  };
-
   return (
-    <Box sx={{ display: 'grid', gap: 2 }}>
-      {solutions.map((sol) => (
-        <Paper key={sol.rank} sx={{ p: 2, border: '1px solid #333', bgcolor: '#111' }}>
-          <Typography variant="subtitle1" sx={{ mb: 1 }}>
-            Lineup #{sol.rank} • Cost ${sol.total_cost} • Proj {sol.total_points}
-          </Typography>
+    <Stack spacing={2}>
+      {solutions.map((sol, i) => (
+        <Paper key={i} sx={{ p: 2 }}>
+          <Stack
+            direction="row"
+            alignItems="baseline"
+            justifyContent="space-between"
+          >
+            <Typography variant="subtitle1">Lineup #{i + 1}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Total ${Number(sol.total_price ?? 0).toFixed(2)} •{" "}
+              {Number(sol.total_projection ?? 0).toFixed(2)} proj
+            </Typography>
+          </Stack>
 
-          <Box sx={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-              {/* Fix widths for small cols; let Name take the rest */}
-              <colgroup>
-                <col style={{ width: '68px' }} />    {/* Slot */}
-                <col style={{ width: '200px' }} />   {/* Name */}
-                <col style={{ width: '60px' }} />    {/* Pos */}
-                <col style={{ width: '84px' }} />    {/* Price */}
-                <col style={{ width: '110px' }} />   {/* Projection */}
-                <col style={{ width: '72px' }} />    {/* PP$ */}
-              </colgroup>
+          <Divider sx={{ my: 1 }} />
 
-              <thead>
-                <tr>
-                  <th style={th}>Slot</th>
-                  <th style={th}>Name</th>
-                  <th style={th}>Pos</th>
-                  <th style={th}>Price</th>
-                  <th style={th}>Projection</th>
-                  <th style={th}>PP$</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sol.table.map((r, i) => (
-                  <tr key={i}>
-                    <td style={td}>{r.Slot}</td>
-                    <td style={nameTd} title={r.Name}>{r.Name}</td> {/* no-wrap + ellipsis */}
-                    <td style={td}>{r.Pos}</td>
-                    <td style={td}>${r.Price}</td>
-                    <td style={td}>{r.Projection}</td>
-                    <td style={td}>{r['PP$'] ?? ''}</td>
-                  </tr>
+          <TableContainer>
+            <Table size="small" aria-label={`lineup-${i}`}>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ width: 28 }}>#</TableCell>
+                  <TableCell>Name</TableCell>
+                  <TableCell sx={{ width: 64 }}>Pos</TableCell>
+                  <TableCell align="right" sx={{ width: 80 }}>
+                    Price
+                  </TableCell>
+                  <TableCell align="right" sx={{ width: 110 }}>
+                    Projection
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(sol.players ?? []).map((p, idx) => (
+                  <TableRow key={`${p.Name}-${idx}`}>
+                    <TableCell>{idx + 1}</TableCell>
+                    <TableCell
+                      sx={{
+                        whiteSpace: "nowrap",
+                        textOverflow: "ellipsis",
+                        overflow: "hidden",
+                        maxWidth: 220,
+                      }}
+                      title={p.Name}
+                    >
+                      {p.Name}
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: "monospace" }}>
+                      {p.Pos}
+                    </TableCell>
+                    <TableCell align="right">
+                      ${Number(p.Price ?? 0).toFixed(0)}
+                    </TableCell>
+                    <TableCell align="right">
+                      {Number(p.Projection ?? 0).toFixed(2)}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </Box>
+                {(!sol.players || sol.players.length === 0) && (
+                  <TableRow>
+                    <TableCell colSpan={5}>
+                      <Box
+                        sx={{
+                          py: 1,
+                          color: "text.secondary",
+                          fontStyle: "italic",
+                        }}
+                      >
+                        (No players in this lineup)
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </Paper>
       ))}
-    </Box>
+    </Stack>
   );
 }

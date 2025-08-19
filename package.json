@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "ext:chrome": "powershell -NoProfile -Command Copy-Item -Force extension\\manifest.chrome.json extension\\manifest.json",
+    "ext:firefox": "powershell -NoProfile -Command Copy-Item -Force extension\\manifest.firefox.json extension\\manifest.json"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -17,13 +19,16 @@
     "axios": "^1.11.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-window": "^1.8.11"
+    "react-window": "^1.8.11",
+    "socket.io-client": "^4.8.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@types/react-window": "^1.8.8",
+    "@types/xlsx": "^0.0.35",
     "@vitejs/plugin-react": "^5.0.0",
     "eslint": "^9.33.0",
     "eslint-plugin-react-hooks": "^5.2.0",
